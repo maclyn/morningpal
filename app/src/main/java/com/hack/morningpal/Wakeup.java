@@ -11,35 +11,34 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentPagerAdapter;
+import android.support.v4.view.GestureDetectorCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
+import android.util.Pair;
+import android.view.GestureDetector;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.Animation;
-import android.view.animation.AnimationSet;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.afollestad.materialdialogs.MaterialDialog;
 import com.squareup.picasso.Callback;
 import com.squareup.picasso.Picasso;
 
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.message.BasicHeader;
-
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 
@@ -53,18 +52,24 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
     UpdatePageAdapter upa;
 
     View splash;
+    TextView goodDay;
+    View start;
+    Button manageModules;
+    Button quietStart;
 
     TextToSpeech tts;
     boolean hasInit = false;
-    ViewPager pager;
+    boolean isQuiet = false;
 
-    int depth = 0;
-    boolean movingDown = false;
+    BroadcastReceiver br;
+
+    ViewPager pager;
 
     //Manage proximity sensor
     SensorManager sm;
     Sensor sensor;
     long downTime = -1;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -85,11 +90,8 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
                 Wakeup.this.runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if(movingDown){
-                            moveDown();
-                        } else {
-                            moveRight();
-                        }
+                        Log.d(TAG, "Speech has completed; move forward");
+                        stepForward();
                     }
                 });
             }
@@ -98,31 +100,73 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
         updates = new ArrayList<>();
 
         splash = findViewById(R.id.splash);
+        goodDay = (TextView) splash.findViewById(R.id.goodDay);
+        start = splash.findViewById(R.id.letsGo);
+        manageModules = (Button) splash.findViewById(R.id.manageModules);
+        quietStart = (Button) splash.findViewById(R.id.quietDay);
+
+        start.setVisibility(View.INVISIBLE);
+        quietStart.setVisibility(View.INVISIBLE);
+
+        //Get time of day
+        Calendar c = new GregorianCalendar();
+        int hour = c.get(Calendar.HOUR_OF_DAY);
+        if(hour < 4){
+            goodDay.setText(R.string.good_night);
+        } else if (hour < 12) {
+            goodDay.setText(R.string.good_morning);
+        } else if (hour < 18) {
+            goodDay.setText(R.string.good_afternoon);
+        } else if (hour < 24) {
+            goodDay.setText(R.string.good_evening);
+        }
+
+        //Start on tap
+        splash.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isQuiet = false;
+                startProcess();
+            }
+        });
+
+        //Start quiet mode on tap
+        quietStart.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isQuiet = true;
+                startProcess();
+            }
+        });
+
+        //Manage modules
+        manageModules.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                manageModules();
+            }
+        });
 
         pager = (ViewPager) findViewById(R.id.pager);
+        pager.setVisibility(View.GONE);
         upa = new UpdatePageAdapter(getSupportFragmentManager());
         pager.setAdapter(upa);
         pager.setPageTransformer(true, new DepthPageTransformer());
         pager.setOnPageChangeListener(new ViewPager.OnPageChangeListener() {
             @Override
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
-
             }
 
             @Override
             public void onPageSelected(int position) {
-                Log.d(TAG, "Page selected: " + position);
-                depth = 0;
-                movingDown = false;
             }
 
             @Override
             public void onPageScrollStateChanged(int state) {
-
             }
         });
 
-        BroadcastReceiver br = new BroadcastReceiver() {
+        br = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 Log.d(TAG, "Found some new data!");
@@ -134,28 +178,24 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
 
                     UpdateItem ui = new UpdateItem(context, intent);
                     handledPackages.add(intent.getStringExtra("sender_package"));
-                    Log.d(TAG, "Adding update item with: " + ui.getTitle());
+                    Log.d(TAG, "Adding update from: " + intent.getStringExtra("sender_package"));
                     updates.add(ui);
                     upa.notifyDataSetChanged();
                     Log.d(TAG, "New size of updates: " + updates.size());
 
-                    //If first one, fade in
+                    //If first one, show start controls
                     if(updates.size() == 1){
-                        ObjectAnimator oa = ObjectAnimator.ofFloat(pager, "alpha", 1.0f);
-                        ObjectAnimator oa2 = ObjectAnimator.ofFloat(splash, "alpha", 0.0f);
-                        AnimatorSet as = new AnimatorSet();
-                        as.setDuration(500l);
-                        as.play(oa).with(oa2);
-                        as.start();
-
-                        //Also speak
-                        HashMap<String, String> params = new HashMap<>();
-                        params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, String.valueOf(100));
-                        tts.speak(updates.get(pager.getCurrentItem()).getPhrase(),
-                                TextToSpeech.QUEUE_ADD, params);
+                       start.setVisibility(View.VISIBLE);
+                       quietStart.setVisibility(View.VISIBLE);
                     }
                 } catch (Exception e) {
                     Log.d(TAG, "Error! Message: " + e.getMessage());
+                    if(intent.hasExtra("sender_package")){
+                        try {
+                            Log.d(TAG, "Error from package: " + intent.getStringExtra("sender_package"));
+                        } catch (Exception ignored) {
+                        }
+                    }
                 }
             }
         };
@@ -176,11 +216,64 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
         sensor = sm.getDefaultSensor(Sensor.TYPE_PROXIMITY);
     }
 
+    private void stepForward() {
+        UpdateFragment uf = (UpdateFragment) upa.getItem(pager.getCurrentItem());
+        if(uf != null){
+            uf.moveDown();
+        }
+    }
+
+    public void haltSpeech(){
+        tts.stop();
+        isQuiet = true;
+    }
+
+    private void manageModules() {
+        //Show dialog for managing modules
+        new MaterialDialog.Builder(this)
+                .title("Manage Modules")
+                .positiveText("Okay")
+                .items(new String[] { "test1", "test2"})
+                .itemsCallbackMultiChoice(new Integer[] {0}, new MaterialDialog.ListCallbackMulti() {
+                    @Override
+                    public void onSelection(MaterialDialog materialDialog, Integer[] integers, CharSequence[] charSequences) {
+                        for(int i : integers){
+                            Toast.makeText(Wakeup.this, "Index: " + i, Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }).show();
+    }
+
+    private void startProcess() {
+        if(updates.size() > 0) {
+            Log.d(TAG, "Start update; animating splash away");
+            ObjectAnimator oa = ObjectAnimator.ofFloat(pager, "alpha", 0.0f, 1.0f);
+            ObjectAnimator oa2 = ObjectAnimator.ofFloat(splash, "alpha", 1.0f, 0.0f);
+            AnimatorSet as = new AnimatorSet();
+            as.setDuration(100l);
+            as.play(oa).with(oa2);
+            as.start();
+            pager.setVisibility(View.VISIBLE);
+
+            if(!isQuiet){
+                upa.readout();
+            }
+        } else {
+            Log.d(TAG, "No updates; animating splash away");
+        }
+    }
+
+    @Override
+    protected void onDestroy(){
+        super.onDestroy();
+        this.unregisterReceiver(br);
+        if(tts != null && hasInit) tts.shutdown();
+    }
+
     @Override
     protected void onResume(){
         super.onResume();
         sm.registerListener(this, sensor, SensorManager.SENSOR_DELAY_FASTEST);
-        Log.d(TAG, "Prox data: " + sensor.getMaximumRange());
         pager.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN |
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -198,20 +291,13 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
         if(updates.size() == 0) return;
 
         if(event.values[0] < sensor.getMaximumRange()){ //Near
-            Log.d(TAG, "Near at " + System.currentTimeMillis());
             downTime = System.currentTimeMillis();
         } else { //Far
-            Log.d(TAG, "Far at " + System.currentTimeMillis());
             long diff = System.currentTimeMillis() - downTime;
-            Log.d(TAG, "Difference: " + diff);
-
             if(downTime == -1) return; //We need a near first
 
-            if(diff > 250l){ //Push
-                tts.stop();
-                moveDown();
-            } else { //Swipe
-                tts.stop();
+            if(diff < 250l) { //Swipe
+                Log.d(TAG, "Moving right");
                 moveRight();
             }
 
@@ -220,47 +306,10 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
     }
 
     private void moveRight() {
-        Log.d(TAG, "Move right");
-        movingDown = false;
-        depth = 0;
-        if (pager.getCurrentItem() < updates.size()-1) {
-            //Play sound on the new page
-            if (hasInit) {
-                HashMap<String, String> params = new HashMap<>();
-                params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, String.valueOf(200));
-                Log.d(TAG, "Phrase: " + updates.get(pager.getCurrentItem() + 1).getPhrase());
-                tts.speak(updates.get(pager.getCurrentItem() + 1).getPhrase(), TextToSpeech.QUEUE_ADD, params);
-                Log.d(TAG, "Speaking");
-            }
-
-             pager.setCurrentItem(pager.getCurrentItem() + 1, true);
-        }
-    }
-
-    private void moveDown(){
-        //Cancel current utterance and scroll down if possible; otherwise reset and moveRight()
-        if(!movingDown){
-            movingDown = true;
-            tts.stop();
-        }
-        depth++;
-        if(depth < updates.get(pager.getCurrentItem()).getMoreInfo().size()){
-            Log.d(TAG, "Current item: " + pager.getCurrentItem());
-            Fragment fragment = upa.getItem(pager.getCurrentItem());
-            if(fragment instanceof UpdateFragment){
-                ((UpdateFragment)fragment).moveDown();
-            } else {
-                Log.d(TAG, "Not an update fragment");
-            }
-
-            //Also speak
-            String utterance = updates.get(pager.getCurrentItem()).getMoreInfo().get(depth).first + " " +
-                    updates.get(pager.getCurrentItem()).getMoreInfo().get(depth).second;
-            HashMap<String, String> params = new HashMap<>();
-            params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, String.valueOf(100));
-            tts.speak(utterance, TextToSpeech.QUEUE_ADD, params);
-        } else {
-            moveRight();
+        Log.d(TAG, "Move right called");
+        if (pager.getCurrentItem() < updates.size()-1) { //Is there room?
+            pager.setCurrentItem(pager.getCurrentItem() + 1, true);
+            if(!isQuiet) upa.readout();
         }
     }
 
@@ -279,7 +328,6 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
 
         @Override
         public Fragment getItem(int position) {
-            Log.d(TAG, "Returning new update fragment...");
             if(map.containsKey(updates.get(position))){
                 return map.get(updates.get(position));
             } else {
@@ -296,6 +344,29 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
         public int getCount() {
             return updates.size();
         }
+
+        //Handle proper speaking
+        public void readout() {
+            Log.d(TAG, "Reading out...");
+            //Read phrase if were at index 0; otherwise read something else
+            tts.stop();
+            if(getItem(pager.getCurrentItem()) != null) {
+                int depth = ((UpdateFragment)getItem(pager.getCurrentItem())).depth;
+                PageDescription current = updates.get(pager.getCurrentItem()).getPages().get(depth);
+                String utterance = current.getPhrase();
+
+                if(utterance != null && !isQuiet) {
+                    utterance = utterance.trim();
+                    HashMap<String, String> params = new HashMap<>();
+                    params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, String.valueOf(100));
+                    tts.speak(utterance, TextToSpeech.QUEUE_FLUSH, params);
+                } else {
+                    Log.d(TAG, "Utterance was null");
+                }
+            } else {
+                Log.d(TAG, "Error: null");
+            }
+        }
     }
 
     public class UpdateFragment extends Fragment {
@@ -306,6 +377,8 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
         ImageView icon;
         View background;
         TextView slides;
+
+        int depth = 0;
 
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -318,7 +391,6 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
 
             int position = getArguments().getInt("position");
             ui = updates.get(position);
-            Log.d(TAG, "Update item at " + position + ": " + ui.getTitle());
 
             //Set parts
             mainLayout = getView().findViewById(R.id.mainLayout);
@@ -335,11 +407,10 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
             if(width <= 0) width = 1000;
             if(height <= 0) height = 1500;
 
-            title.setText(ui.getTitle());
-            description.setText(ui.getDescription());
-            icon.setImageDrawable(ui.getIcon());
+            title.setText(ui.getPages().get(0).getTitle());
+            description.setText(ui.getPages().get(0).getDescription());
+            icon.setImageDrawable(ui.getPages().get(0).getIcon());
             if(ui.getBackgroundUrl() != null){
-                Log.d(TAG, "Trying to get URL: " + ui.getBackgroundUrl());
                 Picasso.with(this.getActivity())
                         .load(ui.getBackgroundUrl())
                         .resize(width, height)
@@ -349,76 +420,207 @@ public class Wakeup extends ActionBarActivity implements SensorEventListener {
                         .into(backgroundImage, new Callback() {
                             @Override
                             public void onSuccess() {
-                                Log.d(TAG, "Successful loading image!");
+                                //Log.d(TAG, "Successful loading image!");
                             }
 
                             @Override
                             public void onError() {
-                                Log.d(TAG, "Failed loading image :(");
+                                //Log.d(TAG, "Failed loading image :(");
                             }
                         });
             }
-            if(ui.getMoreInfo() != null && ui.getMoreInfo().size() > 0){
-                slides.setText("More slides");
+
+            if(ui.getPages().size() > 0){
+                slides.setText("+" + (ui.getPages().size()-1) + " more slides");
             } else {
-                slides.setVisibility(View.GONE);
+                slides.setText("No more slides");
             }
+
+            backgroundImage.setOnTouchListener(new TouchDetector());
         }
 
         public void moveDown(){
-            //Animate to next state
-            //Translate the thing off
-            background.getHeight();
-            mainLayout.getHeight();
-            ObjectAnimator oa = ObjectAnimator.ofFloat(mainLayout, "translationY", (background.getHeight() +
-                    mainLayout.getHeight()) / 2);
-            ObjectAnimator a1 = ObjectAnimator.ofFloat(mainLayout, "alpha", 0);
-            AnimatorSet as = new AnimatorSet();
-            as.addListener(new Animator.AnimatorListener() {
+            depth++;
 
-                @Override
-                public void onAnimationStart(Animator animation) {
+            if(depth > ui.getPages().size()-1){ //Bad state
+                //Move right
+                depth--;
+                ((Wakeup)this.getActivity()).moveRight();
+            } else { //Read more info
+                Log.d(TAG, "Moving views down");
+                final String titleText = ui.getPages().get(depth).getTitle();
+                final String descriptionText = ui.getPages().get(depth).getDescription();
 
-                }
-
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    //Set text
-                    title.setText(ui.getMoreInfo().get(depth).first);
-                    description.setText(ui.getMoreInfo().get(depth).second);
-                    int remainingSlides = ui.getMoreInfo().size() - 1 - depth;
-                    if (remainingSlides > 0) {
-                        slides.setText("More slides");
-                    } else {
-                        slides.setText("No more slides");
+                //Animate to next state
+                //Translate the thing off
+                background.getHeight();
+                mainLayout.getHeight();
+                ObjectAnimator oa = ObjectAnimator.ofFloat(mainLayout, "translationY", -((background.getHeight() + mainLayout.getHeight()) / 2));
+                ObjectAnimator a1 = ObjectAnimator.ofFloat(mainLayout, "alpha", 0);
+                AnimatorSet as = new AnimatorSet();
+                as.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
                     }
 
-                    //Jump up; translate back on
-                    mainLayout.setTranslationY(-((background.getHeight() + mainLayout.getHeight()) / 2));
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        title.setText(titleText);
+                        description.setText(descriptionText);
 
-                    ObjectAnimator oa2 = ObjectAnimator.ofFloat(mainLayout, "translationY", 0);
-                    ObjectAnimator a2 = ObjectAnimator.ofFloat(mainLayout, "alpha", 1);
-                    AnimatorSet as2 = new AnimatorSet();
-                    as2.setDuration(200);
-                    as2.play(oa2).with(a2);
-                    as2.start();
-                }
+                        if(depth < ui.getPages().size()-1){
+                            slides.setText("+" + (ui.getPages().size()-1-depth) + " more slides");
+                        } else {
+                            slides.setText("No more slides");
+                        }
 
-                @Override
-                public void onAnimationCancel(Animator animation) {
+                        //Jump up; translate back on
+                        mainLayout.setTranslationY( (background.getHeight()/2) + (mainLayout.getHeight() / 2) );
 
-                }
+                        ObjectAnimator oa2 = ObjectAnimator.ofFloat(mainLayout, "translationY", 0);
+                        ObjectAnimator a2 = ObjectAnimator.ofFloat(mainLayout, "alpha", 1);
+                        AnimatorSet as2 = new AnimatorSet();
+                        as2.setDuration(200);
+                        as2.play(oa2).with(a2);
+                        as2.start();
+                    }
 
-                @Override
-                public void onAnimationRepeat(Animator animation) {
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                    }
 
-                }
-            });
-            as.setDuration(200).play(a1).with(oa);
-            as.start();
+                    @Override
+                    public void onAnimationRepeat(Animator animation) {
+                    }
+                });
+                as.setDuration(200).play(a1).with(oa);
+                as.start();
+
+                if(!isQuiet) upa.readout();
+            }
+        }
+
+        public void moveUp(){
+            depth--;
+
+            if(depth < 0){ //Bad state
+                depth = 0;
+                return; //Don't do anything
+            } else { //Read more info
+                Log.d(TAG, "Moving views down");
+                final String titleText = ui.getPages().get(depth).getTitle();
+                final String descriptionText = ui.getPages().get(depth).getDescription();
+
+                //Animate to next state
+                //Translate the thing off
+                background.getHeight();
+                mainLayout.getHeight();
+                ObjectAnimator oa = ObjectAnimator.ofFloat(mainLayout, "translationY", (background.getHeight() +
+                        mainLayout.getHeight()) / 2);
+                ObjectAnimator a1 = ObjectAnimator.ofFloat(mainLayout, "alpha", 0);
+                AnimatorSet as = new AnimatorSet();
+                as.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        title.setText(titleText);
+                        description.setText(descriptionText);
+
+                        if(depth < ui.getPages().size()-1){
+                            slides.setText("+" + (ui.getPages().size()-1-depth) + " more slides");
+                        } else {
+                            slides.setText("No more slides");
+                        }
+
+                        //Jump up; translate back on
+                        mainLayout.setTranslationY(-((background.getHeight() + mainLayout.getHeight()) / 2));
+
+                        ObjectAnimator oa2 = ObjectAnimator.ofFloat(mainLayout, "translationY", 0);
+                        ObjectAnimator a2 = ObjectAnimator.ofFloat(mainLayout, "alpha", 1);
+                        AnimatorSet as2 = new AnimatorSet();
+                        as2.setDuration(200);
+                        as2.play(oa2).with(a2);
+                        as2.start();
+                    }
+
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                    }
+
+                    @Override
+                    public void onAnimationRepeat(Animator animation) {
+                    }
+                });
+                as.setDuration(200).play(a1).with(oa);
+                as.start();
+            }
         }
 
         public UpdateFragment(){
+        }
+
+        public class TouchDetector implements View.OnTouchListener, GestureDetector.OnGestureListener {
+            GestureDetectorCompat gc;
+
+            public TouchDetector(){
+                Log.d(TAG, "Instantiating TouchDetector");
+                UpdateFragment.this.getActivity().runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        gc = new GestureDetectorCompat(UpdateFragment.this.getActivity(), TouchDetector.this);
+                    }
+                });
+            }
+
+            @Override
+            public boolean onDown(MotionEvent e) {
+                Log.d(TAG, "onDown");
+                return true;
+            }
+
+            @Override
+            public void onShowPress(MotionEvent e) {
+                Log.d(TAG, "onShowPress");
+            }
+
+            @Override
+            public boolean onSingleTapUp(MotionEvent e) {
+                Log.d(TAG, "onSingleTapUp");
+                return true;
+            }
+
+            @Override
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+                return false;
+            }
+
+            @Override
+            public void onLongPress(MotionEvent e) {
+                Log.d(TAG, "onLongPress");
+            }
+
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                Log.d(TAG, "onFling: " + velocityX + " " + velocityY);
+                if(velocityY < 0){
+                    UpdateFragment.this.moveDown();
+                } else if (velocityY > 0) {
+                    UpdateFragment.this.moveUp();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                if(gc != null){
+                    ((Wakeup)UpdateFragment.this.getActivity()).haltSpeech(); //Stop speech as soon as you touch
+                    return gc.onTouchEvent(event);
+                }
+                return true;
+            }
         }
     }
 }

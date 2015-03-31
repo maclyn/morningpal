@@ -3,4 +3,11 @@
 
     <string name="dummy_button">Dummy Button</string>
     <string name="dummy_content">DUMMY\nCONTENT</string>
+    <string name="manage_modules">Manage modules</string>
+    <string name="quiet_day">Let\'s be quiet</string>
+    <string name="good_morning">Good morning</string>
+    <string name="lets_go">Tap to start</string>
+    <string name="good_night">Good night</string>
+    <string name="good_evening">Good evening</string>
+    <string name="good_afternoon">Good afternoon</string>
 </resources>

@@ -13,6 +13,7 @@ android {
         renderscriptTargetApi 21
         renderscriptSupportModeEnabled true
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -28,4 +29,5 @@ dependencies {
     compile 'com.squareup.picasso:picasso:2.5.0'
     compile 'jp.wasabeef:picasso-transformations:1.0.1@aar'
     compile 'jp.co.cyberagent.android.gpuimage:gpuimage-library:1.2.3@aar'
+    compile 'com.afollestad:material-dialogs:0.6.3.1'
 }

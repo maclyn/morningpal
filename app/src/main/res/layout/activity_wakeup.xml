@@ -3,22 +3,70 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".Wakeup">
+    tools:context=".Wakeup"
+    android:background="@android:color/white">
 
-    <TextView
+    <RelativeLayout
         android:id="@+id/splash"
-        android:textSize="40sp"
-        android:gravity="center"
-        android:background="@android:color/white"
-        android:text="Good morning"
-        android:fontFamily="sans-serif-light"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:textColor="@android:color/black"
-        android:alpha="255" />
+        android:layout_height="match_parent">
+
+        <Button
+            android:id="@+id/quietDay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:layout_alignParentBottom="true"
+            android:layout_centerHorizontal="true"
+            android:fontFamily="sans-serif-condensed-light"
+            android:textStyle="normal"
+            style="?android:attr/borderlessButtonStyle"
+            android:text="@string/quiet_day"/>
+
+        <Button
+            android:id="@+id/manageModules"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/black"
+            android:text="@string/manage_modules"
+            android:layout_above="@+id/quietDay"
+            android:layout_centerHorizontal="true"
+            android:fontFamily="sans-serif-condensed-light"
+            android:textStyle="normal"
+            style="?android:attr/borderlessButtonStyle"
+            android:textSize="20sp"/>
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_above="@+id/manageModules"
+            android:layout_centerHorizontal="true">
+
+            <TextView
+                android:id="@+id/goodDay"
+                android:textSize="40sp"
+                android:text="@string/good_morning"
+                android:fontFamily="sans-serif-light"
+                android:layout_centerInParent="true"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/black"/>
+
+            <TextView
+                android:id="@+id/letsGo"
+                android:layout_below="@+id/goodDay"
+                android:textSize="24sp"
+                android:layout_centerHorizontal="true"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@android:color/white"
+                android:text="@string/lets_go"
+                android:fontFamily="sans-serif-light"/>
+            </RelativeLayout>
+    </RelativeLayout>
 
     <android.support.v4.view.ViewPager
-        android:alpha="0"
         xmlns:android="http://schemas.android.com/apk/res/android"
         android:id="@+id/pager"
         android:layout_width="match_parent"
